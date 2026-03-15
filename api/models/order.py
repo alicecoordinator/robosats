@@ -1,4 +1,5 @@
 # We use custom seeded UUID generation during testing
+import logging
 import uuid
 
 from decimal import Decimal
@@ -7,10 +8,14 @@ from django.conf import settings
 from django.contrib.auth.models import User
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models import F, TextField, Value
 from django.db.models.signals import pre_delete
+from django.db.models.functions import Coalesce, Concat
 from django.dispatch import receiver
 from django.utils import timezone
 from api.tasks import send_notification
+
+logger = logging.getLogger("api.models.order")
 
 if config("TESTING", cast=bool, default=False):
     import random
@@ -349,15 +354,25 @@ class Order(models.Model):
             return
         try:
             timestamp = timezone.now().replace(microsecond=0).isoformat()
-            level_in_tag = "" if level == "INFO" else "<b>"
-            level_out_tag = "" if level == "INFO" else "</b>"
-            self.logs = (
-                self.logs
-                + f"<tr><td>{timestamp}</td><td>{level_in_tag}{level}{level_out_tag}</td><td>{event}</td></tr>"
+            wrapped_level = level if level == "INFO" else f"<b>{level}</b>"
+            log_row = (
+                f"<tr><td>{timestamp}</td><td>{wrapped_level}</td><td>{event}</td></tr>"
             )
-            self.save(update_fields=["logs"])
+
+            type(self).objects.filter(pk=self.pk).update(
+                logs=Concat(
+                    Coalesce(F("logs"), Value(""), output_field=TextField()),
+                    Value(log_row),
+                    output_field=TextField(),
+                )
+            )
+
+            self.logs = (self.logs or "") + log_row
         except Exception:
-            pass
+            logger.exception(
+                "Failed to append log row for order %s",
+                self.pk,
+            )
 
     def update_status(self, new_status):
         old_status = self.status
