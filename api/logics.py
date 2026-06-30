@@ -6,6 +6,7 @@ from decouple import config, Csv
 from django.contrib.auth.models import User
 from django.db.models import Q, Sum
 from django.utils import timezone
+from django.utils.html import format_html
 
 from api.lightning.node import LNNode
 from api.errors import new_error
@@ -800,7 +801,7 @@ class Logics:
         # not a valid address
         valid, context = validate_onchain_address(address)
         if not valid:
-            order.log(f"The address {address} is not valid", level="WARN")
+            order.log(format_html("The address {address} is not valid", address=address), level="WARN")
             return False, context
 
         num_satoshis = cls.payout_amount(order)
